@@ -1,0 +1,6 @@
+body  { font: 16px/1.4 system-ui, sans-serif; max-width: 640px; margin: 2rem auto; }
+form  { margin: 1.5rem 0; padding: 1rem; border: 1px solid #ccc; border-radius: 6px; }
+label { display: block; margin: .6rem 0; }
+input { width: 100%; padding: .4rem; box-sizing: border-box; }
+button{ padding: .4rem 1rem; margin-top: .4rem; }
+pre   { background: #f8f8f8; padding: 1rem; white-space: pre-wrap; }

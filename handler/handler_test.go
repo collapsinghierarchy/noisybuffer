@@ -14,11 +14,8 @@ import (
 
 	"github.com/collapsinghierarchy/noisybuffer/handler"
 	"github.com/collapsinghierarchy/noisybuffer/model"
-	"github.com/collapsinghierarchy/noisybuffer/routes"
 	"github.com/collapsinghierarchy/noisybuffer/service"
 )
-
-//--- minimal fake store (same pattern as service tests) --------------------
 
 type fakeStore struct {
 	exists      bool
@@ -44,10 +41,10 @@ func (f *fakeStore) StreamSubmissions(ctx context.Context, id uuid.UUID, fn func
 }
 
 // -------------------------------------------------------------------------
-func TestSubmitHandler_Success(t *testing.T) {
+func TestPushHandler_Success(t *testing.T) {
 	fs := &fakeStore{exists: true}
 	svc := service.New(fs, 1024)
-	mux := routes.SetupRoutes(svc)
+	mux := handler.SetupNBRoutes(svc)
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -59,9 +56,9 @@ func TestSubmitHandler_Success(t *testing.T) {
 		"blob": base64.StdEncoding.EncodeToString(rawBlob),
 	})
 
-	resp, err := http.Post(srv.URL+"/nb/v1/submit", "application/json", bytes.NewReader(reqBody))
+	resp, err := http.Post(srv.URL+"/nb/v1/push", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
-		t.Fatalf("POST submit error: %v", err)
+		t.Fatalf("POST push error: %v", err)
 	}
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("unexpected status: got %d", resp.StatusCode)
@@ -74,23 +71,23 @@ func TestSubmitHandler_Success(t *testing.T) {
 	}
 }
 
-func TestSubmitHandler_InvalidJSON(t *testing.T) {
+func TestPushHandler_InvalidJSON(t *testing.T) {
 	fs := &fakeStore{exists: true}
 	svc := service.New(fs, 1024)
 	h := handler.New(svc)
 	mux := http.NewServeMux()
-	mux.Handle("/nb/v1/submit", http.HandlerFunc(h.Submit))
-	mux.Handle("/nb/v1/export", http.HandlerFunc(h.Export))
+	mux.Handle("/nb/v1/push", http.HandlerFunc(h.Push))
+	mux.Handle("/nb/v1/pull", http.HandlerFunc(h.Pull))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	resp, _ := http.Post(srv.URL+"/nb/v1/submit", "application/json", bytes.NewReader([]byte("notjson")))
+	resp, _ := http.Post(srv.URL+"/nb/v1/push", "application/json", bytes.NewReader([]byte("notjson")))
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", resp.StatusCode)
 	}
 }
 
-func TestExportHandler_Success(t *testing.T) {
+func TestPullHandler_Success(t *testing.T) {
 	appID := uuid.New()
 	fs := &fakeStore{
 		exists: true,
@@ -102,12 +99,12 @@ func TestExportHandler_Success(t *testing.T) {
 	svc := service.New(fs, 1024)
 	h := handler.New(svc)
 	mux := http.NewServeMux()
-	mux.Handle("/nb/v1/submit", http.HandlerFunc(h.Submit))
-	mux.Handle("/nb/v1/export", http.HandlerFunc(h.Export))
+	mux.Handle("/nb/v1/push", http.HandlerFunc(h.Push))
+	mux.Handle("/nb/v1/pull", http.HandlerFunc(h.Pull))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/nb/v1/export?app=" + appID.String()) // <-- fix here
+	resp, err := http.Get(srv.URL + "/nb/v1/pull?app=" + appID.String()) // <-- fix here
 	if err != nil {
 	}
 	if resp.StatusCode != http.StatusOK {

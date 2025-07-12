@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>NoisyBuffer E2EE Test (HPKE)</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1>NoisyBuffer test page – HPKE Kyber × X25519</h1>
+
+  <!-- KEY REGISTRATION (run once per browser) ------------------------>
+  <form id="regForm">
+    <h2>Register / rotate key</h2>
+    <label>App ID (UUID)
+      <input id="regAppId" required />
+    </label>
+    <button type="submit">Generate&nbsp;+&nbsp;Upload&nbsp;Key</button>
+    <button type="button" id="exportBtn" style="margin-left:.5rem">
+      ⬇️ Download&nbsp;Key-pair
+    </button>
+  </form>
+
+  <!-- PUSH ----------------------------------------------------------->
+  <form id="pushForm">
+    <h2>Push</h2>
+    <label>Recipient App ID
+      <input id="appId" required />
+    </label>
+    <label>Message
+      <input id="msg" required />
+    </label>
+    <button type="submit">Send</button>
+  </form>
+
+  <!-- PULL ----------------------------------------------------------->
+  <form id="pullForm">
+    <h2>Pull (decrypt)</h2>
+    <label>Your App ID
+      <input id="pullAppId" required />
+    </label>
+    <button type="submit">Fetch</button>
+  </form>
+
+  <pre id="output"></pre>
+
+  <!-- HPKE JS from esm.sh (tree-shaken, browser-optimised ESM) -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -18,4 +18,5 @@ type App struct {
 	ID         uuid.UUID
 	Name       string
 	CurrentKid uint8
+	PubKey     []byte
 }

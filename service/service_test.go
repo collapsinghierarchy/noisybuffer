@@ -56,7 +56,7 @@ func (f *fakeStore) StreamSubmissions(ctx context.Context, appID uuid.UUID, fn f
 	return f.streamErr
 }
 
-func TestSubmit_Success(t *testing.T) {
+func TestPush_Success(t *testing.T) {
 	fs := &fakeStore{exists: true}
 	svc := service.New(fs, 1024)
 
@@ -64,7 +64,7 @@ func TestSubmit_Success(t *testing.T) {
 	blob := []byte("data")
 	kid := uint8(5)
 
-	err := svc.Submit(context.Background(), id, kid, blob)
+	err := svc.Push(context.Background(), id, kid, blob)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -89,10 +89,10 @@ func TestSubmit_Success(t *testing.T) {
 	}
 }
 
-func TestSubmit_BlobTooLarge(t *testing.T) {
+func TestPush_BlobTooLarge(t *testing.T) {
 	fs := &fakeStore{exists: true}
 	svc := service.New(fs, 2) // maxBlob = 2 bytes
-	err := svc.Submit(context.Background(), uuid.New(), 1, []byte("toolarge"))
+	err := svc.Push(context.Background(), uuid.New(), 1, []byte("toolarge"))
 	if err == nil || err.Error() != "blob too large" {
 		t.Fatalf("expected blob too large error, got %v", err)
 	}
@@ -101,25 +101,25 @@ func TestSubmit_BlobTooLarge(t *testing.T) {
 	}
 }
 
-func TestSubmit_AppNotFound(t *testing.T) {
+func TestPush_AppNotFound(t *testing.T) {
 	fs := &fakeStore{exists: false}
 	svc := service.New(fs, 1024)
-	err := svc.Submit(context.Background(), uuid.New(), 1, []byte("ok"))
+	err := svc.Push(context.Background(), uuid.New(), 1, []byte("ok"))
 	if !errors.Is(err, service.ErrAppNotFound) {
 		t.Fatalf("expected ErrAppNotFound, got %v", err)
 	}
 }
 
-func TestSubmit_AppExistsError(t *testing.T) {
+func TestPush_AppExistsError(t *testing.T) {
 	fs := &fakeStore{existsErr: errors.New("db down")}
 	svc := service.New(fs, 1024)
-	err := svc.Submit(context.Background(), uuid.New(), 1, []byte("ok"))
+	err := svc.Push(context.Background(), uuid.New(), 1, []byte("ok"))
 	if err == nil || err.Error() != "db down" {
 		t.Fatalf("expected db down error, got %v", err)
 	}
 }
 
-func TestExport_StreamsAll(t *testing.T) {
+func TestPull_StreamsAll(t *testing.T) {
 	id := uuid.New()
 	subs := []*model.Submission{
 		{ID: uuid.New(), AppID: id, Blob: []byte("a")},
@@ -129,7 +129,7 @@ func TestExport_StreamsAll(t *testing.T) {
 	svc := service.New(fs, 1024)
 
 	var collected []*model.Submission
-	err := svc.Export(context.Background(), id, func(s *model.Submission) error {
+	err := svc.Pull(context.Background(), id, func(s *model.Submission) error {
 		collected = append(collected, s)
 		return nil
 	})
@@ -149,19 +149,19 @@ func TestExport_StreamsAll(t *testing.T) {
 	}
 }
 
-func TestExport_StreamError(t *testing.T) {
+func TestPull_StreamError(t *testing.T) {
 	fs := &fakeStore{streamErr: errors.New("stream fail")}
 	svc := service.New(fs, 1024)
-	err := svc.Export(context.Background(), uuid.New(), func(s *model.Submission) error { return nil })
+	err := svc.Pull(context.Background(), uuid.New(), func(s *model.Submission) error { return nil })
 	if err == nil || err.Error() != "stream fail" {
 		t.Errorf("expected stream fail error, got %v", err)
 	}
 }
 
-// TestSubmit_EncryptedStream tests the full integration of the service
-// with actual KEM+AES streaming: it encrypts sample plaintext, submits it,
+// TestPush_EncryptedStream tests the full integration of the service
+// with actual KEM+AES streaming: it encrypts sample plaintext, pushs it,
 // then decrypts the stored blob and verifies the original payload.
-func TestSubmit_EncryptedStream(t *testing.T) {
+func TestPush_EncryptedStream(t *testing.T) {
 	// Generate KEM key pair
 	scheme := hybrid.Kyber768X25519()
 	pkObj, skObj, err := scheme.GenerateKeyPair()
@@ -187,13 +187,13 @@ func TestSubmit_EncryptedStream(t *testing.T) {
 		t.Fatalf("encryptBlob error: %v", err)
 	}
 
-	// --- submit via the service -------------------------------------------------
+	// --- push via the service -------------------------------------------------
 	fs := &fakeStore{exists: true}
 	svc := service.New(fs, int64(len(blob)+10))
 	appID := uuid.New()
 
-	if err := svc.Submit(context.Background(), appID, 1, blob); err != nil {
-		t.Fatalf("Submit error: %v", err)
+	if err := svc.Push(context.Background(), appID, 1, blob); err != nil {
+		t.Fatalf("Push error: %v", err)
 	}
 	stored := fs.inserted
 	if stored == nil {
