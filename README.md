@@ -1,72 +1,79 @@
-# NoisyBuffer
+# NoisyBuffer — *End‑to‑End‑Encrypted Form‑Data API*
 
-**End-to-End Encrypted Form Data API**
+> **Status:** early WIP — API surface will change
 
-NoisyBuffer lets you embed encrypted forms (such as contact pages or wait-lists) on any static site and securely collect responses. Data is encrypted client-side with a post-quantum hybrid KEM (Kyber768 + X25519) and AES-256-GCM, so the server never sees plaintext.
+---
 
-## Features (Work in Progress)
+## ✨ Features
+| Capability | Details |
+|------------|---------|
+| **True E2EE** | Form data is encrypted *in the browser*; the server only stores opaque blobs. |
+| **Post‑quantum hybrid** | Kyber‑768 × X25519 → CatKDF‑SHA‑3‑256 → AES‑256‑GCM. With [hpke-js](https://github.com/dajiaji/hpke-js) and [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Crypto) |
+| **Static‑site friendly** | Works behind GitHub Pages, Netlify, S3, etc. — just drop the JS snippet. |
+| **Owner export** | Stream `/nb/v1/pull` → decrypt locally → JSON / CSV. |
 
-- **End-to-End Encryption**: Browser encrypts data before submission; server stores opaque blobs.
-- **Post-Quantum Security**: Hybrid X25519‖Kyber768 for KEM, as per ETSI TS 103 744 and ePrint 2020/1364 (CatKDF). XWING will be supported as well.
-- **Static Site Compatible**: Integrate with GitHub Pages, Hugo, Jekyll, etc.—no backend required.
-- **Encrypted Form Data Export**: `/nb/v1/export` streams blobs; owner CLI decrypts to JSON/CSV without high memory use. Alternatively you will be able to do it within a Browser-App.
+*XWING KEM and browser‑based exporter are on the roadmap.*
 
-## Architecture
+---
 
-```
-Static Site + JS Snippet      Go API Edge           PostgreSQL
-<form data-noisybuffer> ──► POST /nb/v1/submit ──► store(blob)
-                           GET /nb/v1/export   ──► stream blobs
-```
-
-- **Form Submission**: Client uses HPKE "hybrid" + AES-GCM to encrypt form JSON into a blob.
-- **Blob Format**: `[4-byte ctLen][ct][1-byte nonceLen][nonce][ciphertext]`
-- **Export & Decrypt**: Owner local CLI calls decrypt → outputs plaintext entries.
-
-## Quick Start (Work in Progress)
-
-1. **Clone & Run**  
-   ```bash
-   git clone https://github.com/whitenoise/noisybuffer.git
-   cd noisybuffer
-   docker compose up -d db
-   go run ./cmd/noisybufferd
-   ```
-2. OR **Integrate into your Go Back-End**
-
-TBD
-```
-import "github.com/whitenoise/noisybuffer"
-```
-
-    
-3. OR **Use an existing instance**  
-  TBD
-4. **Embed Snippet**  
-   ```html
-   <script defer
-     src="https://cdn.noisybuffer.com/nb.js"
-     data-app="YOUR_APP_ID"
-     data-kid="1">
-   </script>
-   <form data-noisybuffer>…</form>
-   ```
-5. **Collect & Export**  
-   - Users submit encrypted blobs.  
-   - Owner: `curl /nb/v1/export?project=… | nbctl decrypt --sk sk.pem > outputs.json`
-
-## Project Layout
+## 🗺️ Architecture
 
 ```
-handler/          # HTTP handler methods (Submit, Export)
-service/          # business rules (Submit, Export)
-store/postgres/   # Postgres store implementation
-pkc/              # cryptographic utilities (kem, aes, blob helpers)
-routes.go         # HTTP routing & middleware
+Static site          Go edge API             PostgreSQL
+<form> --(HPKE)--> POST /nb/v1/push  --> blobs
+               <--  GET  /nb/v1/pull  --< stream blobs
+```
+`blob = enc ‖ ct`, where `ct = AES‑GCM(plaintext)`.
+
+---
+
+## 🚀 Quick Start (dev)
+
+```bash
+git clone https://github.com/whitenoise/noisybuffer
+cd noisybuffer
+docker compose up -d            # Postgres + API
+open http://localhost:1234      # demo Push/Pull page
 ```
 
-## Security Notes
+---
 
-- **CatKDF** construction per ETSI TS 103 744: `secret = ss_dh||ss_pq`, `context = SHA3-256(m1||m2)`, then HKDF-SHA3-256 to 32 bytes.
-- **AES-GCM** encryption with random nonces, 64 KB max blob size to limit reuse.
-- **Server**: validates blob size & UUID only; no plaintext ever stored.
+## 🏗️ Embed on any page (Preview of the Functionality)
+
+```html
+<script defer
+        src="https://cdn.noisybuffer.com/nb.js"
+        data-app="YOUR_APP_ID">
+</script>
+
+<form data-noisybuffer>
+  <input name="email" required>
+  <button>Join wait‑list</button>
+</form>
+```
+
+The snippet fetches your public key, encrypts fields, and calls `/nb/v1/push`.
+
+---
+
+## 📦 Project layout
+
+```
+cmd/noisybufferd/   main.go + embedded demo UI
+handler/            HTTP handlers (push, pull, key)
+service/            domain logic (validation, E2EE)
+store/postgres/     SQL adapter (implements store.Store)
+kem/                Go hybrid‑KEM (TinyGo‑compatible)
+web/                index.html, app.js test harness
+```
+
+---
+
+## 🔐 Security notes
+
+* **Hybrid KEM**  
+* **AEAD**
+* **Server**: validates length & UUID only; never sees plaintext or private keys.  
+---
+
+> Contributions welcome!  Open issues or pull requests to discuss improvements.
