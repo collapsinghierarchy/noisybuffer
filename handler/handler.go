@@ -12,12 +12,7 @@ import (
 	"github.com/collapsinghierarchy/noisybuffer/service"
 )
 
-// Server bundles dependencies for HTTP handlers and exposes concrete
-// HTTP endpoints for the NoisyBuffer API.
-//
-// It keeps its dependency surface intentionally narrow: the only thing
-// it needs is a *service.Service implementation that performs the core
-// business logic (validation, persistence, streaming, …).
+// Server bundles dependencies for HTTP handlers.
 type Server struct {
 	svc *service.Service
 }
@@ -26,24 +21,70 @@ type Server struct {
 func New(svc *service.Service) *Server { return &Server{svc: svc} }
 
 // ------------------------------------------------------------
-// Types
+// Request & Response Structs
 // ------------------------------------------------------------
 
+type registerKeyReq struct {
+	AppID string `json:"appID"` // UUID
+	Kid   uint8  `json:"kid"`
+	Pub   string `json:"pub"` // base64
+}
+
+type registerKeyResp struct {
+	Message string `json:"message"`
+}
+
+type publicKeyReq struct {
+	AppID string `json:"appID"`
+}
+
+type publicKeyResp struct {
+	Kid uint8  `json:"kid"`
+	Pub string `json:"pub"` // base64
+}
+
 type pushRequest struct {
-	App  string `json:"app"`  // UUID (base‑36) identifying the client application
-	Kid  uint8  `json:"kid"`  // Key‑ID used for envelope encryption
-	Blob string `json:"blob"` // base64(ct_kem|iv|ct_aes)
+	AppID string `json:"appID"` // UUID (base‑36)
+	Kid   uint8  `json:"kid"`   // Key‑ID used for envelope encryption
+	Blob  string `json:"blob"`  // base64(ciphertext)
+}
+
+type pushResp struct {
+	Message string `json:"message"`
+}
+
+type pullRequest struct {
+	AppID string `json:"appID"`
+}
+
+// ------------------------------------------------------------
+// Router
+// ------------------------------------------------------------
+
+func SetupNBRoutes(svc *service.Service) http.Handler {
+	srv := New(svc)
+
+	mux := http.NewServeMux()
+	mux.Handle("POST /nb/v1/key", http.HandlerFunc(srv.RegisterKey))
+	mux.Handle("GET /nb/v1/pub", http.HandlerFunc(srv.PublicKey))
+	mux.Handle("POST /nb/v1/push", http.HandlerFunc(srv.Push))
+	mux.Handle("GET /nb/v1/pull", http.HandlerFunc(srv.Pull))
+
+	chain := alice.New(logRequest)
+	return chain.Then(mux)
+}
+
+// logRequest is a tiny middleware printing request method & path.
+func logRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		println(r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ------------------------------------------------------------
 // Handlers
 // ------------------------------------------------------------
-
-type registerKeyReq struct {
-	App string `json:"app"` // UUID
-	Kid uint8  `json:"kid"`
-	Pub string `json:"pub"` // base64
-}
 
 func (s *Server) RegisterKey(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -57,11 +98,23 @@ func (s *Server) RegisterKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	println("RegisterKey: decoded JSON, App =", req.App, "Kid =", req.Kid)
-	appID, err := uuid.Parse(req.App)
+	println("RegisterKey: decoded JSON, AppID =", req.AppID, "Kid =", req.Kid)
+	appID, err := uuid.Parse(req.AppID)
 	if err != nil {
-		println("RegisterKey: invalid app id:", req.App)
+		println("RegisterKey: invalid app id:", req.AppID)
 		http.Error(w, "invalid app id", http.StatusBadRequest)
+		return
+	}
+	// Efficiently check if AppID already exists
+	exists, err := s.svc.Store.AppExists(r.Context(), appID)
+	if err != nil {
+		println("RegisterKey: error checking app existence:", err.Error())
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		println("RegisterKey: appID already exists:", req.AppID)
+		http.Error(w, "appID already registered", http.StatusConflict) // 409 Conflict
 		return
 	}
 	pub, err := base64.StdEncoding.DecodeString(req.Pub)
@@ -78,11 +131,9 @@ func (s *Server) RegisterKey(w http.ResponseWriter, r *http.Request) {
 	}
 	println("RegisterKey: key registered successfully")
 	w.WriteHeader(http.StatusCreated)
-}
-
-type getKeyResp struct {
-	Kid uint8  `json:"kid"`
-	Pub string `json:"pub"` // base64
+	if err := json.NewEncoder(w).Encode(registerKeyResp{Message: "key registered successfully"}); err != nil {
+		println("RegisterKey: failed to encode JSON response:", err.Error())
+	}
 }
 
 func (s *Server) PublicKey(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +141,13 @@ func (s *Server) PublicKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	app := r.URL.Query().Get("app")
-	if app == "" {
-		http.Error(w, "missing app", http.StatusBadRequest)
+	// Extract the public key request from query parameters.
+	appIDStr := r.URL.Query().Get("appID")
+	if appIDStr == "" {
+		http.Error(w, "missing appID", http.StatusBadRequest)
 		return
 	}
-	appID, err := uuid.Parse(app)
+	appID, err := uuid.Parse(appIDStr)
 	if err != nil {
 		http.Error(w, "invalid app id", http.StatusBadRequest)
 		return
@@ -108,109 +160,92 @@ func (s *Server) PublicKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(getKeyResp{
+	resp := publicKeyResp{
 		Kid: kid,
 		Pub: base64.StdEncoding.EncodeToString(pub),
-	})
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// Push ingests a single encrypted submission sent by a client.
-// The binary cipher‑text is provided using base64 so it survives
-// JSON marshalling and transport intact.
+// Push ingests one encrypted blob: {appID, kid, blob (base64)}.
 func (s *Server) Push(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// ----- decode JSON ------------------------------------------------
 	var req pushRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	appID, err := uuid.Parse(req.App)
+	appID, err := uuid.Parse(req.AppID)
 	if err != nil {
 		http.Error(w, "invalid app id", http.StatusBadRequest)
 		return
 	}
 
+	// ----- pre-flight: does this App exist? ---------------------------
+	exists, err := s.svc.Store.AppExists(r.Context(), appID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		http.Error(w, "app not found", http.StatusNotFound)
+		return
+	}
+
+	// ----- decode blob ------------------------------------------------
 	blobBytes, err := base64.StdEncoding.DecodeString(req.Blob)
 	if err != nil {
 		http.Error(w, "invalid blob", http.StatusBadRequest)
 		return
 	}
 
+	// ----- persist ----------------------------------------------------
 	if err := s.svc.Push(r.Context(), appID, req.Kid, blobBytes); err != nil {
-		if err == service.ErrAppNotFound {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// ----- done -------------------------------------------------------
 	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(pushResp{Message: "push successful"})
 }
 
-// Pull streams—newline‑delimited—every pending submission for the given
-// application. The connection is held open until the service returns EOF
-// (i.e. the app queue is empty) or an unrecoverable error occurs.
+// Pull streams every pending submission for the given app.
+// Response: text/plain; each line = base64(blob)\n
 func (s *Server) Pull(w http.ResponseWriter, r *http.Request) {
+	// 1. method guard --------------------------------------------------
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	app := r.URL.Query().Get("app")
-	if app == "" {
-		http.Error(w, "missing app", http.StatusBadRequest)
+	// 2. extract & validate appID -------------------------------------
+	appIDStr := r.URL.Query().Get("appID")
+	if appIDStr == "" {
+		http.Error(w, "missing appID", http.StatusBadRequest)
 		return
 	}
-
-	appID, err := uuid.Parse(app)
+	appID, err := uuid.Parse(appIDStr)
 	if err != nil {
 		http.Error(w, "invalid app id", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
+	// 3. stream blobs --------------------------------------------------
+	w.Header().Set("Content-Type", "text/plain")
+
 	err = s.svc.Pull(r.Context(), appID, func(sub *model.Submission) error {
-		if _, err := w.Write(sub.Blob); err != nil {
-			return err
-		}
-		_, err := w.Write([]byte{'\n'})
+		line := base64.StdEncoding.EncodeToString(sub.Blob)
+		_, err := w.Write(append([]byte(line), '\n'))
 		return err
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-// ------------------------------------------------------------
-// Router
-// ------------------------------------------------------------
-
-// SetupNBRoutes returns an http.Handler that exposes the two public
-// endpoints (push & pull) wrapped with minimal logging middleware.
-func SetupNBRoutes(svc *service.Service) http.Handler {
-	srv := New(svc)
-
-	mux := http.NewServeMux()
-	mux.Handle("/nb/v1/key", http.HandlerFunc(srv.RegisterKey))
-	mux.Handle("/nb/v1/push", http.HandlerFunc(srv.Push))
-	mux.Handle("/nb/v1/pull", http.HandlerFunc(srv.Pull))
-
-	// You can extend the alice chain with additional middleware (tracing,
-	// metrics, …) in a single spot without touching the handlers.
-	chain := alice.New(logRequest)
-	return chain.Then(mux)
-}
-
-// logRequest is a tiny middleware printing request method & path to stdout.
-func logRequest(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		println(r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
-	})
 }

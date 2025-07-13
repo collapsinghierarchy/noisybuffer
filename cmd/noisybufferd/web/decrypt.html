@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<link rel="stylesheet" href="/style.css"> 
+<head><meta charset="utf-8"><title>NoisyBuffer – Decrypt</title></head>
+<body>
+<p><a href="index.html">← back</a></p>
+<h1>Decrypt messages</h1>
+
+<h2>Import access file</h2>
+<input type="file" id="accessFile" accept="application/json">
+<hr/>
+
+<form id="pullForm">
+<label>App ID <input id="pullAppId" required></label>
+<button>Fetch & Decrypt</button>
+</form>
+
+<pre id="output"></pre>
+<script type="module" src="decrypt.js"></script>
+</body></html>

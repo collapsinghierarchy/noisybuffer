@@ -8,13 +8,15 @@ const out = document.getElementById("output");
 const enc = new TextEncoder(), dec = new TextDecoder();
 
 // --------------------------------------------------------------------
-// Persistent "my App ID" (one UUID per browser installation)
+// Persistent "my App ID" 
 // --------------------------------------------------------------------
-const MY_ID_KEY = "nb:my-app-id5";
+const MY_ID_KEY = "nb:my-app-id";
 
-const myAppId =  crypto.randomUUID();          // Web-standard UUIDv4
-localStorage.setItem(MY_ID_KEY, myAppId);
-
+let myAppId = localStorage.getItem(MY_ID_KEY);
+if (!myAppId) {
+    myAppId = crypto.randomUUID();          // Web-standard UUIDv4
+    localStorage.setItem(MY_ID_KEY, myAppId);
+}
 
 // Prefill the two inputs that refer to *your* app ID
 document.addEventListener("DOMContentLoaded", () => {
@@ -94,7 +96,7 @@ document.getElementById("regForm").addEventListener("submit", async ev => {
   const res = await fetch("/api/nb/v1/key", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ app: appId, kid, pub: pubB64 }),
+    body: JSON.stringify({ appID: appId, kid, pub: pubB64 }),
   });
   out.textContent = `register: ${res.status} ${res.statusText}`;
 });
@@ -105,62 +107,73 @@ document.getElementById("pushForm").addEventListener("submit", async ev => {
   const recipId = document.getElementById("appId").value.trim();
   const message  = document.getElementById("msg").value;
 
-  // 1. fetch recipient public key
-  const r = await fetch(`/api/nb/v1/key?app=${encodeURIComponent(recipId)}`);
-  if (!r.ok) { out.textContent = "no public key registered"; return; }
+  // 1. fetch recipient public key from the new endpoint '/api/nb/v1/pub'
+  const r = await fetch(`/api/nb/v1/pub?appID=${encodeURIComponent(recipId)}`);
+  if (!r.ok) { 
+    out.textContent = "no public key registered"; 
+    return; 
+  }
   const { kid, pub } = await r.json();
 
   // 2. seal with HPKE
   const suite = suiteFactory();
   const pubKey = await suite.kem.deserializePublicKey(b64ToArray(pub));
- 
- // keyOps unused for KEM
   const sender = await suite.createSenderContext({ recipientPublicKey: pubKey });
-  const ct = await sender.seal(enc.encode(message));
+  const ciphertextBuf = await sender.seal(enc.encode(message));
+  const ciphertext = new Uint8Array(ciphertextBuf);
+  console.log("ct length:", ciphertext.length);
 
-  // 3. concat enc || ct  (enc is fixed-length for this KEM →  32+1088 = 1120 B)
-  const blob = new Uint8Array(sender.enc.length + ct.length);
+  const blob = new Uint8Array(sender.enc.length + ciphertext.length);
+  if (blob.length !== sender.enc.length + ciphertext.length) {
+    out.textContent = "Internal error: blob size mismatch";
+    return;
+  }
   blob.set(sender.enc, 0);
-  blob.set(ct, sender.enc.length);
+  blob.set(ciphertext, sender.enc.length);
 
-  // 4. push
-  await fetch("/api/nb/v1/push", {
+  // 4. push the sealed message using POST to the push handler
+  const pushRes = await fetch("/api/nb/v1/push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      app: recipId,
+      appID: recipId,
       kid,
       blob: arrayToB64(blob),
     }),
   });
-  out.textContent = "pushed!";
+  out.textContent = `push: ${pushRes.status} ${pushRes.statusText}`;
 });
 
 // ---------- PULL ------------------------------------------------------
 document.getElementById("pullForm").addEventListener("submit", async ev => {
   ev.preventDefault();
   const appId = document.getElementById("pullAppId").value.trim();
-  const { priv } = await loadOrCreateKeypair(appId);
+  const { privKey } = await loadOrCreateKeypair(appId); // <-- use privKey
 
   const suite = suiteFactory();
-  const privKey = await suite.kem.deserializePrivateKey(b64ToArray(priv));
 
-  const res = await fetch(`/api/nb/v1/pull?app=${encodeURIComponent(appId)}`);
+  const res = await fetch(`/api/nb/v1/pull?appID=${encodeURIComponent(appId)}`);
   if (!res.ok) { out.textContent = `${res.status}`; return; }
 
   const lines = (await res.text()).trim().split("\n");
   const msgs = [];
   for (const line of lines) {
-    const blob = b64ToArray(line);
-    const encPart = blob.slice(0, suite.kem.encSize);
-    const ctPart  = blob.slice(suite.kem.encSize);
+    if (!line.trim()) continue; // skip empty lines
+    try {
+      const blob = b64ToArray(line);
+      const encPart = blob.slice(0, suite.kem.encSize);
+      const ctPart  = blob.slice(suite.kem.encSize);
 
-    const recipCtx = await suite.createRecipientContext({
-      recipientKey: privKey,
-      enc: encPart,
-    });
-    const pt = await recipCtx.open(ctPart);
-    msgs.push(dec.decode(pt));
+      const recipCtx = await suite.createRecipientContext({
+        recipientKey: privKey,
+        enc: encPart,
+      });
+      const pt = await recipCtx.open(ctPart);
+      msgs.push(dec.decode(pt));
+    } catch (e) {
+      console.warn("Skipping invalid base64 line:", line, e);
+      continue;
+    }
   }
   out.textContent = msgs.join("\n");
 });
