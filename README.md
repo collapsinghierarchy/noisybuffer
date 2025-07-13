@@ -63,7 +63,6 @@ cmd/noisybufferd/   main.go + embedded demo UI
 handler/            HTTP handlers (push, pull, key)
 service/            domain logic (validation, E2EE)
 store/postgres/     SQL adapter (implements store.Store)
-kem/                Go hybrid‑KEM (TinyGo‑compatible)
 web/                index.html, app.js test harness
 ```
 
