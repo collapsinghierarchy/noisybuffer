@@ -1,7 +1,7 @@
 # NoisyBuffer — End-to-End Encrypted Forms API
 
-**NoisyBuffer** lets any static site collect form data (such as contact or wait-list data)
-encrypted in the browser (quantum safe hybrids from [hpke-js](https://github.com/dajiaji/hpke-js) --> Kyber-768 × X25519 → AES-GCM).
+NoisyBuffer is an end-to-end-encrypted (E2EE) form backend for static sites and Jamstack pages.
+A drop-in `<script>` seals every field in the browser with post-quantum crypto (Kyber-768 × X25519 → AES-256-GCM) and streams an opaque blob to a lightweight Go API—so neither your server nor any third-party ever sees plaintext. Plug it in where you’d use Formspree or Netlify Forms and stay GDPR-proof and post-quantum ready.
 
 > **Status:** early WIP — API surface will change
 
