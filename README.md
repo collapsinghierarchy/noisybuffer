@@ -11,7 +11,7 @@ A drop-in `<script>` seals every field in the browser with post-quantum crypto (
 | Capability | Details |
 |------------|---------|
 | **True E2EE** | Form data is encrypted *in the browser*; the server only stores opaque blobs. |
-| **Post‑quantum hybrid** | Kyber‑768 × X25519 → CatKDF‑SHA‑3‑256 → AES‑256‑GCM. With [hpke-js](https://github.com/dajiaji/hpke-js) and [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Crypto) |
+| **Post‑quantum hybrid** | Kyber‑768 × X25519 → AES‑256‑GCM. With [hpke-js](https://github.com/dajiaji/hpke-js) and [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Crypto) |
 | **Static‑site friendly** | Works behind GitHub Pages, Netlify, S3, etc. — just drop the JS snippet. |
 | **Owner export** | Stream `/nb/v1/pull` → decrypt locally → JSON / CSV. |
 
