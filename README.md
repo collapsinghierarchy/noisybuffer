@@ -1,7 +1,7 @@
 # NoisyBuffer — End-to-End Encrypted Forms API
 
 **NoisyBuffer** lets any static site collect form data (such as contact or wait-list data)
-encrypted in the browser (Kyber-768 × X25519 → AES-GCM).
+encrypted in the browser (quantum safe hybrids from [hpke-js](https://github.com/dajiaji/hpke-js) --> Kyber-768 × X25519 → AES-GCM).
 
 > **Status:** early WIP — API surface will change
 
