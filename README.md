@@ -16,18 +16,6 @@ A drop-in `<script>` seals every field in the browser with post-quantum crypto (
 | **Owner export** | Stream `/nb/v1/pull` → decrypt locally → JSON / CSV. |
 
 *XWING KEM and browser‑based exporter are on the roadmap.*
-
----
-
-## 🗺️ Architecture
-
-```
-Static site          Go edge API             PostgreSQL
-<form> --(HPKE)--> POST /nb/v1/push  --> blobs
-               <--  GET  /nb/v1/pull  --< stream blobs
-```
-`blob = enc ‖ ct`, where `ct = AES‑GCM(plaintext)`.
-
 ---
 
 ## 🚀 Quick Start (dev)
@@ -44,10 +32,8 @@ open http://localhost:1234      # demo Push/Pull page
 ## 🏗️ Embed on any page (Preview of the Functionality)
 
 ```html
-<script defer
-        src="https://cdn.noisybuffer.com/nb.js"
-        data-app="YOUR_APP_ID">
-</script>
+<script src="URL/nb.js"></script>
+<script>NB.init({appId:'bc8c5b3c-b496-4dcc-8551-575978214c44'})</script>
 
 <form data-noisybuffer>
   <input name="email" required>
@@ -68,14 +54,5 @@ service/            domain logic (validation, E2EE)
 store/postgres/     SQL adapter (implements store.Store)
 web/                index.html, app.js test harness
 ```
-
----
-
-## 🔐 Security notes
-
-* **Hybrid KEM**  
-* **AEAD**
-* **Server**: validates length & UUID only; never sees plaintext or private keys.  
----
 
 > Contributions welcome!  Open issues or pull requests to discuss improvements.
